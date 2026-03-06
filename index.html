@@ -498,7 +498,8 @@ html, body {
 }
 @media (max-width: 640px) {
   #sp-sidebar-btn { display: flex; }
-  #map-controls { top: 10px; right: 10px; }
+  #map-controls { top: 10px; right: 10px; flex-direction: column; gap: 5px; }
+  #map-controls .map-btn { font-size: 0.7rem; padding: 7px 10px; }
 }
 
 /* Loading overlay */
@@ -1195,13 +1196,12 @@ out center tags;
 `.trim();
 }
 
-// Overpass APIミラーリスト（1つ失敗したら次を試す）
-// maps.mail.ru はEdge追跡防止でブロックされるため除外
+// Overpass APIミラーリスト（安定順）
+// kumi.systems が最も安定 → 先頭に配置
 const OVERPASS_MIRRORS = [
   'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.openstreetmap.ru/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
 ];
 
 async function fetchOverpass(lat, lng, radius) {
