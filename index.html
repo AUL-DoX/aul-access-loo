@@ -1172,59 +1172,47 @@ function makeUserIcon() {
 }
 
 // ═══════════════════════════════════
-// OVERPASS API
+// キャッシュJSON方式
+// data/{city}.json を読み込む
+// Overpass APIへの依存を排除し安定稼働を実現
 // ═══════════════════════════════════
-function buildOverpassQuery(lat, lng, radius) {
-  // 公共トイレ + 施設内トイレ（toilets=yes / toilets:wheelchair=yes）を幅広く取得
-  return `
-[out:json][timeout:25];
-(
-  node["amenity"="toilets"](around:${radius},${lat},${lng});
-  way["amenity"="toilets"](around:${radius},${lat},${lng});
-  node["toilets"="yes"](around:${radius},${lat},${lng});
-  way["toilets"="yes"](around:${radius},${lat},${lng});
-  node["toilets:wheelchair"="yes"](around:${radius},${lat},${lng});
-  way["toilets:wheelchair"="yes"](around:${radius},${lat},${lng});
-  node["amenity"="fuel"]["toilets"="yes"](around:${radius},${lat},${lng});
-  way["amenity"="fuel"]["toilets"="yes"](around:${radius},${lat},${lng});
-  node["highway"="rest_area"](around:${radius},${lat},${lng});
-  way["highway"="rest_area"](around:${radius},${lat},${lng});
-  node["highway"="services"](around:${radius},${lat},${lng});
-  way["highway"="services"](around:${radius},${lat},${lng});
-);
-out center tags;
-`.trim();
-}
 
-// Overpass APIミラーリスト（安定順）
-// kumi.systems が最も安定 → 先頭に配置
-const OVERPASS_MIRRORS = [
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-  'https://overpass-api.de/api/interpreter',
+// 都市ごとのデータファイルマッピング
+// 緯度経度から最寄りの都市データを自動選択
+const CITY_DATA = [
+  { name: 'sapporo', lat: 43.0642, lng: 141.3469, label: '札幌' },
+  { name: 'tokyo',   lat: 35.6812, lng: 139.7671, label: '東京' },
+  { name: 'osaka',   lat: 34.6937, lng: 135.5023, label: '大阪' },
+  { name: 'nagoya',  lat: 35.1815, lng: 136.9066, label: '名古屋' },
+  { name: 'fukuoka', lat: 33.5902, lng: 130.4017, label: '福岡' },
 ];
 
-async function fetchOverpass(lat, lng, radius) {
-  const query = buildOverpassQuery(lat, lng, radius);
-  let lastErr;
-  for (const url of OVERPASS_MIRRORS) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(url, {
-        method: 'POST',
-        body: 'data=' + encodeURIComponent(query),
-        signal: controller.signal
-      });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return await res.json();
-    } catch(e) {
-      console.warn('Overpass mirror failed: ' + url, e.message);
-      lastErr = e;
-    }
+// 現在地から最も近い都市を選択
+function detectCity(lat, lng) {
+  let nearest = CITY_DATA[0];
+  let minD = Infinity;
+  for (const c of CITY_DATA) {
+    const d = dist(lat, lng, c.lat, c.lng);
+    if (d < minD) { minD = d; nearest = c; }
   }
-  throw lastErr;
+  return nearest;
+}
+
+// キャッシュ済みデータを読み込む
+let loadedCities = new Set();
+async function loadCityData(cityName) {
+  if (loadedCities.has(cityName)) return; // 既読み込み済み
+  const res = await fetch(`data/${cityName}.json`);
+  if (!res.ok) throw new Error(`data/${cityName}.json が見つかりません (${res.status})`);
+  const json = await res.json();
+  const items = (json.elements || [])
+    .map(parseOverpassElement)
+    .filter(Boolean);
+  const existingIds = new Set(allData.map(x => x.id));
+  const fresh = items.filter(x => !existingIds.has(x.id));
+  allData = [...allData, ...fresh];
+  loadedCities.add(cityName);
+  console.log(`✅ ${cityName}.json: ${fresh.length}件読み込み`);
 }
 
 function parseOverpassElement(el) {
@@ -1307,21 +1295,15 @@ function parseOverpassElement(el) {
 // DATA MANAGEMENT
 // ═══════════════════════════════════
 async function fetchAndShow(lat, lng) {
-  const radius = parseInt($('radius-sel').value) || 1000;
   setStatus(t().statusFetching, 'loading');
   $('map-loading').classList.remove('hidden');
-  setText('loading-text', t().loadingText + ' (' + (radius>=1000?(radius/1000)+'km':radius+'m') + ')');
+  setText('loading-text', t().loadingText);
 
   try {
-    const json = await fetchOverpass(lat, lng, radius);
-    const items = (json.elements || [])
-      .map(parseOverpassElement)
-      .filter(Boolean);
-
-    // 今回の取得範囲でリセット（重複排除）
-    const existingIds = new Set(allData.map(x=>x.id));
-    const fresh = items.filter(x => !existingIds.has(x.id));
-    allData = [...allData, ...fresh];
+    // 現在地から最寄りの都市データを選択して読み込む
+    const city = detectCity(lat, lng);
+    setText('loading-text', (lang === 'ja' ? city.label : city.name) + 'のデータを読み込み中…');
+    await loadCityData(city.name);
 
     // 距離を再計算
     allData.forEach(x => {
@@ -1334,21 +1316,52 @@ async function fetchAndShow(lat, lng) {
     const msg = t().fetchDone(filtered.length);
     setStatus(msg);
     showToast('✅ ' + msg);
-    // speak は非同期で少し遅らせる（マイク干渉防止）
     setTimeout(() => speak(msg), 300);
+
     // 住所不明のアイテムをバックグラウンドで補完
-    enrichAddresses(allData).then(() => {
-      applyFilter();
-    });
+    enrichAddresses(allData).then(() => { applyFilter(); });
+
   } catch(e) {
     console.error('fetchAndShow error:', e);
-    const errMsg = t().fetchFail + (e.message ? ' (' + e.message + ')' : '');
-    setStatus(errMsg);
-    showToast('❌ ' + t().fetchFail);
-    console.error(e);
+    // JSONファイルがない場合はOverpass APIにフォールバック
+    showToast('⚠️ ローカルデータなし。Overpassから取得中…');
+    await fetchAndShowOverpass(lat, lng);
   } finally {
     $('map-loading').classList.add('hidden');
   }
+}
+
+// フォールバック：Overpass API直接取得
+async function fetchAndShowOverpass(lat, lng) {
+  const radius = parseInt($('radius-sel').value) || 1000;
+  const MIRRORS = [
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+    'https://overpass-api.de/api/interpreter',
+  ];
+  const query = `[out:json][timeout:25];(node["amenity"="toilets"](around:${radius},${lat},${lng});way["amenity"="toilets"](around:${radius},${lat},${lng}););out center tags;`;
+  let lastErr;
+  for (const url of MIRRORS) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(url, { method:'POST', body:'data='+encodeURIComponent(query), signal:ctrl.signal });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const json = await res.json();
+      const items = (json.elements || []).map(parseOverpassElement).filter(Boolean);
+      const existingIds = new Set(allData.map(x=>x.id));
+      allData = [...allData, ...items.filter(x=>!existingIds.has(x.id))];
+      allData.forEach(x => { x._d = dist(lat, lng, x.lat, x.lng); });
+      applyFilter(); renderMarkers();
+      const msg = t().fetchDone(filtered.length);
+      setStatus(msg); showToast('✅ ' + msg);
+      setTimeout(() => speak(msg), 300);
+      return;
+    } catch(e) { lastErr = e; }
+  }
+  const errMsg = t().fetchFail;
+  setStatus(errMsg); showToast('❌ ' + errMsg);
 }
 
 // ═══════════════════════════════════
