@@ -1,0 +1,1937 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#050d1a">
+<meta name="description" content="AUL Access Loo - 音声案内対応・現在地周辺のアクセシブルトイレを検索">
+<title>AUL Access Loo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+:root {
+  --bg:       #050d1a;
+  --bg2:      #0a1628;
+  --bg3:      #111e35;
+  --bg4:      #1a2d4a;
+  --border:   #1e3a5f;
+  --cyan:     #00d4ff;
+  --cyan2:    #0099cc;
+  --purple:   #7c3aed;
+  --green:    #10b981;
+  --amber:    #f59e0b;
+  --red:      #ef4444;
+  --text:     #e2e8f0;
+  --muted:    #64748b;
+  --radius:   14px;
+  --font:     'Zen Kaku Gothic New', 'Hiragino Sans', 'Meiryo', sans-serif;
+  --mono:     'Share Tech Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%; width: 100%;
+  overflow: hidden;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ══════════════════════════════════════
+   APP SHELL
+══════════════════════════════════════ */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 100vw;
+  position: relative;
+}
+
+/* ══════════════════════════════════════
+   HEADER
+══════════════════════════════════════ */
+#header {
+  background: linear-gradient(135deg, #050d1a 0%, #0d0520 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 100;
+}
+
+#header::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  opacity: 0.6;
+}
+
+.logo {
+  width: 42px; height: 42px;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  box-shadow: 0 0 20px rgba(0,212,255,0.25);
+}
+
+.header-text { flex: 1; min-width: 0; }
+.header-text h1 {
+  font-size: 0.92rem;
+  font-weight: 900;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.header-text p {
+  font-size: 0.65rem;
+  color: var(--cyan);
+  letter-spacing: 0.05em;
+  font-family: var(--mono);
+}
+
+.header-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.hbtn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.hbtn:hover { border-color: var(--cyan); color: var(--cyan); }
+
+/* ══════════════════════════════════════
+   STATUS BAR
+══════════════════════════════════════ */
+#status-bar {
+  background: var(--bg2);
+  border-bottom: 2px solid var(--cyan);
+  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-height: 32px;
+}
+
+.pulse-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s infinite;
+  flex-shrink: 0;
+}
+.pulse-dot.loading { background: var(--amber); animation: pulse 0.5s infinite; }
+.pulse-dot.speaking { background: var(--cyan); animation: pulse 0.7s infinite; }
+.pulse-dot.listening { background: var(--red); animation: pulse 0.4s infinite; }
+.pulse-dot.off { background: var(--muted); animation: none; }
+
+@keyframes pulse {
+  0%,100% { opacity:1; transform:scale(1); }
+  50% { opacity:0.3; transform:scale(1.4); }
+}
+
+#status-text { font-size: 0.75rem; color: var(--text); flex: 1; }
+#status-announce {
+  font-size: 0.68rem; color: var(--cyan);
+  font-family: var(--mono);
+  max-width: 50%; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ══════════════════════════════════════
+   BODY
+══════════════════════════════════════ */
+#body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  #body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+  }
+  #sidebar { display: none; }
+  #sidebar.sp-open { display: flex; position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 50; }
+}
+
+/* ══════════════════════════════════════
+   SIDEBAR
+══════════════════════════════════════ */
+#sidebar {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.search-zone {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg3);
+  flex-shrink: 0;
+}
+
+.search-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.search-input-wrap {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.search-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  padding: 8px 32px 8px 12px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.2s;
+  min-width: 0;
+}
+.search-input:focus { border-color: var(--cyan); }
+.search-input::placeholder { color: var(--muted); }
+.search-clear-btn {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.2s, background 0.2s;
+}
+.search-clear-btn:hover { color: var(--text); background: var(--bg3); }
+
+.icon-btn {
+  width: 36px; height: 36px;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.icon-btn:hover { background: var(--cyan); border-color: var(--cyan); color: #000; }
+
+/* Radius selector */
+.radius-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.radius-row label { white-space: nowrap; }
+.radius-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--cyan);
+  font-size: 0.72rem;
+  font-family: var(--mono);
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chip {
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.chip:hover { border-color: var(--cyan); color: var(--cyan); }
+.chip.active {
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  border-color: transparent;
+  color: #fff;
+  font-weight: 700;
+}
+
+.list-header {
+  padding: 8px 12px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.list-count { font-size: 0.72rem; color: var(--muted); }
+.sort-btn {
+  font-size: 0.68rem; color: var(--cyan);
+  background: none; border: none;
+  cursor: pointer; font-family: var(--font);
+  padding: 2px 6px; border-radius: 5px;
+  transition: background 0.2s;
+}
+.sort-btn:hover { background: var(--bg3); }
+
+#toilet-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+#toilet-list::-webkit-scrollbar { width: 4px; }
+#toilet-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── CARD ── */
+.card {
+  background: var(--bg3);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 12px 10px;
+  margin-bottom: 8px;
+  transition: all 0.18s;
+  position: relative;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0; width: 4px;
+  background: var(--muted);
+  border-radius: 14px 0 0 14px;
+  transition: background 0.18s;
+}
+.card:focus-within { border-color: var(--cyan); }
+.card:focus-within::before { background: var(--cyan); }
+.card.selected { border-color: var(--cyan); background: #0d2035; }
+.card.selected::before { background: var(--cyan); }
+
+/* カードヘッダー行 */
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2px;
+}
+.card-name {
+  font-weight: 900;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  flex: 1;
+  color: var(--text);
+}
+.card-dist {
+  font-size: 0.75rem; color: var(--cyan);
+  font-family: var(--mono); font-weight: 700;
+  white-space: nowrap; margin-left: 8px;
+  flex-shrink: 0;
+  background: var(--bg4);
+  padding: 2px 7px; border-radius: 6px;
+}
+.card-addr {
+  font-size: 0.72rem; color: var(--muted);
+  margin-bottom: 6px; line-height: 1.4;
+}
+.badges { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 8px; }
+.badge {
+  font-size: 0.62rem; padding: 3px 7px;
+  border-radius: 8px; font-weight: 700;
+}
+.badge-wc       { background: #1e3a5f; color: #60a5fa; }
+.badge-multi    { background: #1a3a2a; color: #34d399; }
+.badge-ostomate { background: #2d1b4e; color: #a78bfa; }
+.badge-baby     { background: #3a2a00; color: #fbbf24; }
+.badge-24h      { background: #1e1e1e; color: #94a3b8; }
+.badge-indoor   { background: #1a2a3a; color: #67e8f9; }
+
+/* カード内アクションボタン行 */
+.card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.card-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 9px 13px;
+  border-radius: 10px; border: none;
+  font-size: 0.78rem; font-family: var(--font); font-weight: 700;
+  cursor: pointer; transition: all 0.18s;
+  min-height: 44px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.card-btn-nav  {
+  background: linear-gradient(135deg, var(--cyan), var(--cyan2));
+  color: #000; flex: 1;
+}
+.card-btn-speak {
+  background: linear-gradient(135deg, var(--amber), #d97706);
+  color: #000;
+}
+.card-btn-fav {
+  background: var(--bg4);
+  color: var(--text);
+  border: 1.5px solid var(--border);
+  min-width: 44px; justify-content: center;
+}
+.card-btn-fav.active { color: #fbbf24; border-color: #fbbf24; }
+.card-btn:hover, .card-btn:focus-visible { transform: translateY(-1px); filter: brightness(1.1); }
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.8;
+}
+.empty-state .icon { font-size: 36px; display: block; margin-bottom: 10px; }
+
+/* ══════════════════════════════════════
+   MAP
+══════════════════════════════════════ */
+#map-wrap {
+  position: relative;
+  background: #0d1b2a;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+/* Leaflet overrides */
+.leaflet-container { background: #0d1b2a; font-family: var(--font); }
+.leaflet-popup-content-wrapper {
+  background: var(--bg3) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  color: var(--text) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6) !important;
+}
+.leaflet-popup-tip { background: var(--bg3) !important; }
+.leaflet-popup-content { margin: 12px !important; font-size: 0.82rem; }
+.leaflet-popup-close-button { color: var(--muted) !important; font-size: 18px !important; }
+.leaflet-control-attribution { background: rgba(5,13,26,0.8) !important; color: var(--muted) !important; font-size: 0.6rem !important; }
+.leaflet-control-attribution a { color: var(--cyan) !important; }
+.leaflet-bar a { background: var(--bg3) !important; color: var(--text) !important; border-color: var(--border) !important; }
+.leaflet-bar a:hover { background: var(--bg4) !important; }
+
+/* Map overlay controls */
+#map-controls {
+  position: absolute;
+  top: 12px; right: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  z-index: 1000;
+}
+
+.map-btn {
+  background: var(--bg3);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-family: var(--font);
+  cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+  transition: all 0.2s;
+  white-space: nowrap;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+}
+.map-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.map-btn.primary {
+  background: linear-gradient(135deg, var(--cyan), var(--cyan2));
+  border-color: transparent; color: #000; font-weight: 700;
+}
+
+/* SP: toggle sidebar button */
+#sp-sidebar-btn {
+  position: absolute;
+  bottom: 80px; left: 12px;
+  z-index: 1001;
+  display: none;
+}
+@media (max-width: 640px) {
+  #sp-sidebar-btn { display: flex; }
+  #map-controls { top: 10px; right: 10px; }
+}
+
+/* Loading overlay */
+#map-loading {
+  position: absolute;
+  inset: 0;
+  background: rgba(5,13,26,0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 900;
+  transition: opacity 0.4s;
+}
+#map-loading.hidden { opacity: 0; pointer-events: none; }
+
+.spinner {
+  width: 48px; height: 48px;
+  border: 3px solid var(--border);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 0.82rem; color: var(--muted); font-family: var(--mono); }
+
+/* Welcome screen */
+#welcome {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 40%, #0d2035 0%, var(--bg) 70%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 800;
+  padding: 20px;
+  text-align: center;
+  transition: opacity 0.5s;
+}
+#welcome.hidden { opacity: 0; pointer-events: none; }
+
+.welcome-icon { font-size: 56px; display: block; }
+#welcome h2 { font-size: 1.1rem; font-weight: 900; color: var(--text); }
+#welcome p { font-size: 0.8rem; color: var(--muted); line-height: 1.8; max-width: 340px; }
+.welcome-locate-btn {
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  border: none; color: #fff;
+  padding: 14px 32px; border-radius: 50px;
+  font-size: 0.95rem; font-family: var(--font); font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 24px rgba(0,212,255,0.3);
+  transition: all 0.2s;
+  letter-spacing: 0.02em;
+}
+.welcome-locate-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,212,255,0.4); }
+.welcome-note { font-size: 0.7rem; color: var(--muted); }
+
+/* ══════════════════════════════════════
+   DETAIL PANEL  ― map-wrap 内に絶対配置
+══════════════════════════════════════ */
+#detail {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: rgba(10, 22, 40, 0.97);
+  border-top: 2px solid var(--cyan);
+  padding: 0 16px;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.35s ease, padding 0.35s ease;
+  z-index: 500;
+  backdrop-filter: blur(8px);
+}
+#detail.open {
+  max-height: 260px;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.detail-handle {
+  width: 32px; height: 3px;
+  background: var(--muted);
+  border-radius: 2px;
+  margin: 0 auto 10px;
+}
+.detail-name { font-size: 1rem; font-weight: 900; margin-bottom: 2px; }
+.detail-addr { font-size: 0.75rem; color: var(--muted); margin-bottom: 8px; }
+.detail-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.detail-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
+
+.action-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 8px 14px; border-radius: 10px; border: none;
+  font-size: 0.77rem; font-family: var(--font); font-weight: 700;
+  cursor: pointer; transition: all 0.2s; text-decoration: none;
+  line-height: 1;
+}
+.action-primary  { background: linear-gradient(135deg, var(--cyan), var(--cyan2)); color: #000; }
+.action-amber    { background: linear-gradient(135deg, var(--amber), #d97706); color: #000; }
+.action-ghost    { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+.action-btn:hover { transform: translateY(-1px); }
+
+.detail-note {
+  font-size: 0.75rem; color: var(--muted); line-height: 1.7;
+  padding: 9px 12px; background: var(--bg3); border-radius: 8px;
+}
+.detail-close {
+  float: right;
+  background: var(--bg3); border: 2px solid var(--border);
+  color: var(--text); width: 44px; height: 44px;
+  border-radius: 10px; font-size: 18px;
+  cursor: pointer; display: inline-flex;
+  align-items: center; justify-content: center;
+  margin-left: 8px; flex-shrink: 0;
+  font-weight: 700;
+  transition: all 0.2s;
+}
+.detail-close:hover, .detail-close:focus-visible {
+  background: var(--red); border-color: var(--red); color: #fff;
+}
+
+/* ══════════════════════════════════════
+   MIC BAR
+══════════════════════════════════════ */
+#mic-bar {
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.mic-btn {
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--amber), #d97706);
+  border: none; color: #000; font-size: 20px;
+  cursor: pointer; flex-shrink: 0;
+  box-shadow: 0 3px 14px rgba(245,158,11,0.35);
+  transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center;
+}
+.mic-btn:hover { transform: scale(1.08); }
+.mic-btn.on {
+  background: linear-gradient(135deg, var(--red), #b91c1c);
+  color: #fff;
+  animation: mic-ring 0.7s infinite;
+}
+@keyframes mic-ring {
+  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+  50% { box-shadow: 0 0 0 12px rgba(239,68,68,0); }
+}
+
+.mic-hint { font-size: 0.7rem; color: var(--muted); line-height: 1.6; flex: 1; }
+
+/* ══════════════════════════════════════
+   ACCESSIBILITY
+══════════════════════════════════════ */
+
+/* スクリーンリーダー専用テキスト（視覚的に非表示） */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* フォーカスリング：キーボード・スイッチアクセス対応 */
+:focus-visible {
+  outline: 3px solid var(--cyan) !important;
+  outline-offset: 3px !important;
+  border-radius: 6px;
+}
+
+/* リセットボタン：常時タップしやすい大きさ */
+.reset-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--bg4);
+  border: 2px solid var(--cyan);
+  border-radius: 10px;
+  color: var(--cyan);
+  font-size: 0.85rem;
+  font-family: var(--font);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 48px; /* タッチターゲット最小48px */
+}
+.reset-btn:hover, .reset-btn:focus-visible {
+  background: var(--cyan);
+  color: #000;
+}
+
+/* 最寄り読み上げボタン */
+.mic-hint-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.speak-nearest-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg3);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-family: var(--font);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 44px;
+  width: fit-content;
+}
+.speak-nearest-btn:hover, .speak-nearest-btn:focus-visible {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+/* chip の aria-pressed 対応 */
+.chip[aria-pressed="true"] {
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  border-color: transparent;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* カードのフォーカス可視化 */
+.card:focus-visible {
+  outline: 3px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+/* アクションボタン最小タッチサイズ保証 */
+.action-btn { min-height: 44px; }
+.icon-btn   { min-height: 44px; min-width: 44px; }
+.mic-btn    { min-height: 56px; min-width: 56px; }
+
+/* ══════════════════════════════════════
+   TOAST
+══════════════════════════════════════ */
+#toast {
+  position: fixed;
+  bottom: 20px; left: 50%;
+  transform: translateX(-50%) translateY(16px);
+  background: var(--bg3);
+  border: 1px solid var(--cyan);
+  color: var(--text);
+  padding: 9px 18px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  opacity: 0;
+  transition: all 0.3s;
+  z-index: 9999;
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: 90vw;
+  text-align: center;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ══════════════════════════════════════
+   CUSTOM MARKERS
+══════════════════════════════════════ */
+.custom-marker {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.6);
+  font-size: 14px;
+  transition: transform 0.2s;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+}
+.custom-marker.multi-marker   { background: radial-gradient(circle, #34d399, #10b981); }
+.custom-marker.basic-marker   { background: radial-gradient(circle, #60a5fa, #3b82f6); }
+.custom-marker.user-marker    { background: radial-gradient(circle, var(--cyan), var(--cyan2)); animation: ping 1.5s infinite; }
+.custom-marker.radius-circle  { opacity: 0.15; }
+
+@keyframes ping {
+  0%,100% { box-shadow: 0 0 0 0 rgba(0,212,255,0.5); }
+  50% { box-shadow: 0 0 0 10px rgba(0,212,255,0); }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <header id="header">
+    <div class="logo">♿</div>
+    <div class="header-text">
+      <h1 id="hd-title">AUL Access Loo</h1>
+      <p>バリアフリートイレマップ · 音声案内対応</p>
+    </div>
+    <div class="header-actions">
+      <button class="hbtn" id="lang-btn" onclick="App.toggleLang()">🌐 EN</button>
+    </div>
+  </header>
+
+  <!-- STATUS BAR -->
+  <div id="status-bar" role="status" aria-live="polite" aria-atomic="true">
+    <div class="pulse-dot" id="pulse"></div>
+    <span id="status-text">準備完了</span>
+    <span id="status-ann" aria-live="assertive"></span>
+  </div>
+
+  <!-- BODY -->
+  <div id="body">
+
+    <!-- SIDEBAR -->
+    <div id="sidebar">
+      <div class="search-zone">
+        <!-- 検索入力行 -->
+        <div class="search-row" role="search">
+          <label for="search-input" class="sr-only">トイレを検索</label>
+          <div class="search-input-wrap">
+            <input class="search-input" id="search-input"
+                   placeholder="施設名・住所で検索…"
+                   autocomplete="off"
+                   oninput="App.search()"
+                   aria-label="施設名または住所でトイレを検索"
+                   aria-describedby="search-hint"
+                   role="searchbox">
+            <button class="search-clear-btn" id="search-clear"
+                    onclick="App.clearSearch()"
+                    aria-label="検索をクリアして全件表示に戻る"
+                    style="display:none">✕</button>
+          </div>
+          <button class="icon-btn" onclick="App.startVoice()"
+                  aria-label="マイクで音声検索する"
+                  title="音声検索">🎙️</button>
+          <button class="icon-btn" onclick="App.locate()"
+                  aria-label="現在地を取得して近くのトイレを探す"
+                  title="現在地">📍</button>
+        </div>
+        <span id="search-hint" class="sr-only">入力すると絞り込み、✕ボタンでリセットできます</span>
+
+        <!-- 検索半径 -->
+        <div class="radius-row">
+          <label for="radius-sel" id="radius-label">検索半径：</label>
+          <select class="radius-select" id="radius-sel"
+                  onchange="App.onRadiusChange()"
+                  aria-label="検索半径を選択">
+            <option value="500">500m</option>
+            <option value="1000" selected>1km</option>
+            <option value="2000">2km</option>
+            <option value="5000">5km</option>
+          </select>
+        </div>
+
+        <!-- フィルターチップ -->
+        <div class="chips" role="group" aria-label="トイレの種類でフィルター" id="chips">
+          <button class="chip active" data-f="all" aria-pressed="true">すべて</button>
+          <button class="chip" data-f="multi" aria-pressed="false">多機能</button>
+          <button class="chip" data-f="ostomate" aria-pressed="false">オストメイト</button>
+          <button class="chip" data-f="baby" aria-pressed="false">ベビーケア</button>
+          <button class="chip" data-f="indoor" aria-pressed="false">屋内</button>
+          <button class="chip" data-f="fav" aria-pressed="false">♥ お気に入り</button>
+        </div>
+
+        <!-- 全件リセットボタン（常時表示・大きめ） -->
+        <button class="reset-btn" id="reset-btn"
+                onclick="App.resetAll()"
+                aria-label="検索とフィルターをすべてリセットして全件表示に戻る">
+          🔄 <span id="reset-btn-label">すべてリセット</span>
+        </button>
+      </div>
+      <div class="list-header">
+        <span class="list-count" id="list-count"
+              aria-live="polite" aria-atomic="true">0件</span>
+        <button class="sort-btn" id="sort-btn"
+                onclick="App.toggleSort()"
+                aria-label="並び順を切り替える">距離順 ▼</button>
+      </div>
+      <div id="toilet-list" role="list" aria-label="トイレ一覧" aria-live="polite"></div>
+    </div>
+
+    <!-- MAP -->
+    <div id="map-wrap">
+      <!-- WELCOME -->
+      <div id="welcome">
+        <span class="welcome-icon">🗺️</span>
+        <h2 id="wc-title">現在地からトイレを探す</h2>
+        <p id="wc-desc">位置情報を許可すると<br>周辺のバリアフリートイレを<br>自動で取得・表示します</p>
+        <button class="welcome-locate-btn" onclick="App.locate()">
+          📍 <span id="wc-btn-text">現在地を取得して探す</span>
+        </button>
+        <span class="welcome-note" id="wc-note">OpenStreetMapデータ使用・APIキー不要</span>
+      </div>
+
+      <!-- MAP LOADING -->
+      <div id="map-loading" class="hidden">
+        <div class="spinner"></div>
+        <div class="loading-text" id="loading-text">データを取得中…</div>
+      </div>
+
+      <div id="map"></div>
+
+      <!-- MAP CONTROLS -->
+      <div id="map-controls">
+        <button class="map-btn primary" onclick="App.locate()">
+          📍 <span id="mc-locate">現在地更新</span>
+        </button>
+        <button class="map-btn" onclick="App.fetchAroundMap()">
+          🔄 <span id="mc-reload">この範囲を再検索</span>
+        </button>
+      </div>
+
+      <!-- SP SIDEBAR BUTTON -->
+      <button class="map-btn" id="sp-sidebar-btn" onclick="App.toggleSidebar()">
+        📋 <span id="sp-list-text">リスト</span>
+      </button>
+
+      <!-- DETAIL PANEL: map上に絶対配置でレイアウト崩れ防止 -->
+      <div id="detail" role="region" aria-label="トイレ詳細">
+        <div id="detail-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MIC BAR -->
+  <div id="mic-bar" role="toolbar" aria-label="音声操作バー">
+    <button class="mic-btn" id="mic-btn"
+            onclick="App.startVoice()"
+            aria-label="音声検索を開始する。もう一度押すと停止"
+            aria-pressed="false">🎙️</button>
+    <div class="mic-hint-wrap">
+      <span class="mic-hint" id="mic-hint" aria-live="off">
+        マイクで音声検索 ／ スペースキー：最寄りトイレを読み上げ
+      </span>
+      <button class="speak-nearest-btn" id="speak-nearest-btn"
+              onclick="App.speakNearest()"
+              aria-label="最寄りのトイレを音声で読み上げる">
+        🔊 <span id="speak-nearest-label">最寄りを読み上げ</span>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+(function() {
+'use strict';
+
+// ═══════════════════════════════════
+// I18N
+// ═══════════════════════════════════
+const T = {
+  ja: {
+    lang:'ja', langBtn:'🌐 EN', speechLang:'ja-JP', sep:'、',
+    hdTitle:'AUL Access Loo',
+    statusReady:'準備完了', statusSpeaking:'読み上げ中…',
+    statusListening:'音声認識中…', statusWait:'待機中',
+    statusLocating:'現在地を取得中…', statusFetching:'トイレデータ取得中…',
+    searchPH:'施設名・住所で検索…',
+    radiusLabel:'検索半径：',
+    chips:{ all:'すべて', multi:'多機能', ostomate:'オストメイト', baby:'ベビーケア', indoor:'屋内', fav:'♥ お気に入り' },
+    sortD:'距離順 ▼', sortN:'デフォルト ▼',
+    count: n => `${n}件`,
+    noResult:'この範囲に該当するトイレがありません\n「この範囲を再検索」を試してください',
+    welcomeTitle:'現在地からトイレを探す',
+    welcomeDesc:'位置情報を許可すると\n周辺のバリアフリートイレを\n自動で取得・表示します',
+    welcomeBtn:'現在地を取得して探す',
+    welcomeNote:'OpenStreetMapデータ使用・APIキー不要',
+    mcLocate:'現在地更新', mcReload:'この範囲を再検索',
+    loadingText:'データを取得中…',
+    spList:'リスト',
+    micHint:'マイクで音声検索 ／ スペースキー：最寄りトイレを読み上げ',
+    resetLabel:'すべてリセット',
+    speakNearestLabel:'最寄りを読み上げ',
+    openMaps:'🗺️ マップで開く', readAgain:'🔊 読み上げ', favAdd:'☆ お気に入り', favRemove:'⭐ 解除',
+    favAdded:'お気に入りに追加', favRemoved:'お気に入りから削除',
+    hoursLabel:'🕐 営業時間：',
+    badge:{ wc:'WC', multi:'多機能', ostomate:'オストメイト', baby:'ベビー', indoor:'屋内', '24h':'24h' },
+    feat:{ wc:'一般WC', multi:'多機能トイレ', ostomate:'オストメイト対応', baby:'ベビーケアあり', indoor:'屋内施設', '24h':'24時間利用可' },
+    filterLabel:{ all:'すべて', multi:'多機能', ostomate:'オストメイト対応', baby:'ベビーケアあり', indoor:'屋内', fav:'お気に入り' },
+    welcome:'AUL Access Looのバリアフリートイレマップへようこそ。現在地ボタンで周辺のトイレを自動検索します。',
+    locating:'現在地を取得します', located:'現在地を取得しました',
+    locateToast:'📍 現在地を取得しました',
+    locateFail:'位置情報の取得に失敗しました',
+    fetching:'OpenStreetMapからデータを取得中…',
+    fetchDone: n => `${n}件のトイレを表示しています`,
+    fetchFail:'データの取得に失敗しました。しばらくお待ちください。',
+    speakSelect: (t, feats) => `${t.name}。${feats}。${t.note}`,
+    speakNearest: t => `最も近いトイレ：${t.name}。${t.addr}`,
+    speakFilter: l => `${l}でフィルター`,
+    speakSearch: q => `「${q}」で検索`,
+    noMic:'このブラウザは音声認識に非対応です',
+    speakNow:'話しかけてください',
+    voiceFail:'音声を認識できませんでした',
+    popup_multi:'♿ 多機能トイレ', popup_basic:'🚻 トイレ',
+    popup_navigate:'ここへ行く',
+  },
+  en: {
+    lang:'en', langBtn:'🌐 日本語', speechLang:'en-US', sep:', ',
+    hdTitle:'AUL Access Loo',
+    statusReady:'Ready', statusSpeaking:'Speaking…',
+    statusListening:'Listening…', statusWait:'Standby',
+    statusLocating:'Getting location…', statusFetching:'Fetching data…',
+    searchPH:'Search by name or address…',
+    radiusLabel:'Search radius: ',
+    chips:{ all:'All', multi:'Accessible', ostomate:'Ostomate', baby:'Baby care', indoor:'Indoor', fav:'♥ Favorites' },
+    sortD:'By distance ▼', sortN:'Default ▼',
+    count: n => `${n} result${n!==1?'s':''}`,
+    noResult:'No toilets found in this area.\nTry "Search this area".',
+    welcomeTitle:'Find Accessible Toilets Near You',
+    welcomeDesc:'Allow location access to\nautomatically find accessible\ntoilets around you.',
+    welcomeBtn:'Use my location',
+    welcomeNote:'Powered by OpenStreetMap · No API key needed',
+    mcLocate:'Update location', mcReload:'Search this area',
+    loadingText:'Fetching data…',
+    spList:'List',
+    micHint:'Mic for voice search / Space: read nearest toilet',
+    resetLabel:'Reset all filters',
+    speakNearestLabel:'Read nearest',
+    openMaps:'🗺️ Open maps', readAgain:'🔊 Read again', favAdd:'☆ Favorite', favRemove:'⭐ Remove',
+    favAdded:'Added to favorites', favRemoved:'Removed from favorites',
+    hoursLabel:'🕐 Hours: ',
+    badge:{ wc:'WC', multi:'Accessible', ostomate:'Ostomate', baby:'Baby', indoor:'Indoor', '24h':'24h' },
+    feat:{ wc:'Standard WC', multi:'Accessible toilet', ostomate:'Ostomate', baby:'Baby care', indoor:'Indoor facility', '24h':'24 hours' },
+    filterLabel:{ all:'All', multi:'Accessible', ostomate:'Ostomate', baby:'Baby care', indoor:'Indoor', fav:'Favorites' },
+    welcome:'Welcome to the Accessible Toilet Map. Press the location button to find toilets near you.',
+    locating:'Getting your location…', located:'Location found.',
+    locateToast:'📍 Location found',
+    locateFail:'Could not get your location.',
+    fetching:'Fetching data from OpenStreetMap…',
+    fetchDone: n => `Showing ${n} toilet${n!==1?'s':''}`,
+    fetchFail:'Failed to fetch data. Please try again.',
+    speakSelect: (t, feats) => `${t.name}. ${feats}. ${t.note}`,
+    speakNearest: t => `Nearest: ${t.name}. ${t.addr}`,
+    speakFilter: l => `Filtered by ${l}`,
+    speakSearch: q => `Searching for "${q}"`,
+    noMic:'Voice recognition is not supported.',
+    speakNow:'Please speak now',
+    voiceFail:'Could not recognize speech',
+    popup_multi:'♿ Accessible Toilet', popup_basic:'🚻 Toilet',
+    popup_navigate:'Navigate here',
+  }
+};
+
+// ═══════════════════════════════════
+// STATE
+// ═══════════════════════════════════
+let lang = 'ja';
+const t = () => T[lang];
+let allData = [];
+let filtered = [];
+let currentFilter = 'all';
+let searchQ = '';
+let sortDist = true;
+let userLat = null, userLng = null;
+let favs = [];
+try { favs = JSON.parse(localStorage.getItem('bf_favs') || '[]'); } catch(e){}
+let selectedId = null;
+let map = null;
+let userMarker = null;
+let radiusCircle = null;
+let markers = {};
+let sidebarOpen = false;
+let recognition = null;
+let isListening = false;
+const synth = window.speechSynthesis;
+let welcomeHidden = false;
+
+// ═══════════════════════════════════
+// UTILS
+// ═══════════════════════════════════
+const $ = id => document.getElementById(id);
+const setText = (id, txt) => { const el=$(id); if(el) el.textContent=txt; };
+const setHtml = (id, html) => { const el=$(id); if(el) el.innerHTML=html; };
+
+function showToast(msg, dur=3000) {
+  const el=$('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), dur);
+}
+
+function setStatus(text, pulse='') {
+  setText('status-text', text);
+  const dot = $('pulse');
+  dot.className = 'pulse-dot' + (pulse ? ' ' + pulse : '');
+}
+
+function setAnnounce(text) {
+  setText('status-ann', text);
+  setTimeout(() => setText('status-ann', ''), 4000);
+}
+
+function dist(lat1, lng1, lat2, lng2) {
+  const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function fmtDist(m) { return m<1000?`${Math.round(m)}m`:`${(m/1000).toFixed(1)}km`; }
+function getSel() { return allData.find(x=>x.id===selectedId); }
+
+// ═══════════════════════════════════
+// SPEECH
+// ═══════════════════════════════════
+function speak(text, priority=false) {
+  if (!text) return;
+  if (priority) synth.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = t().speechLang; u.rate = 0.95;
+  synth.speak(u);
+  setStatus(t().statusSpeaking, 'speaking');
+  setAnnounce(text.substring(0,40));
+  u.onend = () => setStatus(t().statusWait);
+}
+
+// ═══════════════════════════════════
+// MAP INIT
+// ═══════════════════════════════════
+function initMap() {
+  if (map) return;
+  map = L.map('map', {
+    center: [35.6812, 139.7671],
+    zoom: 14,
+    zoomControl: true,
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19
+  }).addTo(map);
+
+  map.on('click', () => closeDetail());
+}
+
+function makeMarkerIcon(isMulti, size=32) {
+  const cls = isMulti ? 'multi-marker' : 'basic-marker';
+  const emoji = isMulti ? '♿' : '🚻';
+  return L.divIcon({
+    className: '',
+    html: `<div class="custom-marker ${cls}" style="width:${size}px;height:${size}px">${emoji}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size/2, size/2],
+    popupAnchor: [0, -size/2]
+  });
+}
+
+function makeUserIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<div class="custom-marker user-marker" style="width:28px;height:28px">📍</div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+  });
+}
+
+// ═══════════════════════════════════
+// OVERPASS API
+// ═══════════════════════════════════
+function buildOverpassQuery(lat, lng, radius) {
+  // 公共トイレ + 施設内トイレ（toilets=yes / toilets:wheelchair=yes）を幅広く取得
+  return `
+[out:json][timeout:25];
+(
+  node["amenity"="toilets"](around:${radius},${lat},${lng});
+  way["amenity"="toilets"](around:${radius},${lat},${lng});
+  node["toilets"="yes"](around:${radius},${lat},${lng});
+  way["toilets"="yes"](around:${radius},${lat},${lng});
+  node["toilets:wheelchair"="yes"](around:${radius},${lat},${lng});
+  way["toilets:wheelchair"="yes"](around:${radius},${lat},${lng});
+  node["amenity"="fuel"]["toilets"="yes"](around:${radius},${lat},${lng});
+  way["amenity"="fuel"]["toilets"="yes"](around:${radius},${lat},${lng});
+  node["highway"="rest_area"](around:${radius},${lat},${lng});
+  way["highway"="rest_area"](around:${radius},${lat},${lng});
+  node["highway"="services"](around:${radius},${lat},${lng});
+  way["highway"="services"](around:${radius},${lat},${lng});
+);
+out center tags;
+`.trim();
+}
+
+// Overpass APIミラーリスト（1つ失敗したら次を試す）
+const OVERPASS_MIRRORS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
+
+async function fetchOverpass(lat, lng, radius) {
+  const query = buildOverpassQuery(lat, lng, radius);
+  let lastErr;
+  for (const url of OVERPASS_MIRRORS) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(url, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(query),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return await res.json();
+    } catch(e) {
+      console.warn('Overpass mirror failed: ' + url, e.message);
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
+function parseOverpassElement(el) {
+  const tags = el.tags || {};
+  const flat = el.lat ?? el.center?.lat;
+  const flng = el.lon ?? el.center?.lon;
+  if (!flat || !flng) return null;
+
+  // Feature detection
+  const features = [];
+  const wc = tags['wheelchair'];
+  const isAccessible = wc === 'yes' || wc === 'designated' || tags['toilets:wheelchair'] === 'yes';
+  if (isAccessible) features.push('multi');
+  if (tags['amenity'] === 'toilets') features.push('wc');
+  if (tags['changing_table'] === 'yes' || tags['diaper_changing_station'] === 'yes') features.push('baby');
+  if (tags['toilets:ostomate'] === 'yes' || tags['ostomate'] === 'yes') features.push('ostomate');
+  // 屋内・施設内判定（amenity=toilets 以外は施設内扱い）
+  const indoor = tags['indoor'] === 'yes'
+    || tags['location'] === 'indoor'
+    || tags['covered'] === 'yes'
+    || tags['amenity'] === 'fuel'
+    || tags['highway'] === 'rest_area'
+    || tags['highway'] === 'services'
+    || (tags['toilets'] === 'yes' && tags['amenity'] !== 'toilets');
+  if (indoor) features.push('indoor');
+  if (!features.includes('wc')) features.push('wc');
+
+  // Opening hours
+  let open = '';
+  if (tags['opening_hours']) {
+    open = tags['opening_hours'];
+    if (open === '24/7') features.push('24h');
+  }
+
+  // Name（施設名がある場合は「施設名 トイレ」形式に）
+  const facilityName = tags['name'] || tags['name:ja'] || tags['name:en'] || '';
+  const isToiletNode = tags['amenity'] === 'toilets';
+  let name;
+  if (isToiletNode) {
+    name = facilityName || (isAccessible ? '多機能トイレ' : 'トイレ');
+  } else {
+    // 施設内トイレ：施設名 + トイレ種別
+    const suffix = isAccessible ? '（多機能トイレ）' : '（トイレあり）';
+    name = facilityName ? facilityName + suffix : (isAccessible ? '多機能トイレ' : 'トイレ');
+  }
+  // Address (OSMタグから組み立て、なければ後でNominatimで補完)
+  const addr = [
+    tags['addr:prefecture'] || tags['addr:province'],
+    tags['addr:city'] || tags['addr:municipality'],
+    tags['addr:suburb'] || tags['addr:quarter'],
+    tags['addr:street']
+  ].filter(Boolean).join(' ') || '';
+
+  // Note
+  const noteParts = [];
+  if (wc && wc !== 'no') noteParts.push(`車椅子：${wc}`);
+  if (tags['fee'] === 'yes') noteParts.push('有料');
+  if (tags['fee'] === 'no')  noteParts.push('無料');
+  if (tags['operator'])      noteParts.push(`管理：${tags['operator']}`);
+
+  // 施設カテゴリをnoteに追加
+  const amenity = tags['amenity'];
+  const highway = tags['highway'];
+  if (amenity === 'fuel') noteParts.push('ガソリンスタンド内');
+  else if (highway === 'rest_area') noteParts.push('道の駅・休憩所');
+  else if (highway === 'services') noteParts.push('サービスエリア');
+  else if (amenity !== 'toilets' && tags['toilets'] === 'yes') noteParts.push('施設内トイレ');
+
+  return {
+    id: String(el.type + el.id),
+    name, addr,
+    lat: flat, lng: flng,
+    features, open,
+    note: noteParts.join('。') || 'OpenStreetMapに登録されたトイレです。',
+    _raw: tags
+  };
+}
+
+// ═══════════════════════════════════
+// DATA MANAGEMENT
+// ═══════════════════════════════════
+async function fetchAndShow(lat, lng) {
+  const radius = parseInt($('radius-sel').value) || 1000;
+  setStatus(t().statusFetching, 'loading');
+  $('map-loading').classList.remove('hidden');
+  setText('loading-text', t().loadingText + ' (' + (radius>=1000?(radius/1000)+'km':radius+'m') + ')');
+
+  try {
+    const json = await fetchOverpass(lat, lng, radius);
+    const items = (json.elements || [])
+      .map(parseOverpassElement)
+      .filter(Boolean);
+
+    // 今回の取得範囲でリセット（重複排除）
+    const existingIds = new Set(allData.map(x=>x.id));
+    const fresh = items.filter(x => !existingIds.has(x.id));
+    allData = [...allData, ...fresh];
+
+    // 距離を再計算
+    allData.forEach(x => {
+      x._d = dist(lat, lng, x.lat, x.lng);
+    });
+
+    applyFilter();
+    renderMarkers();
+
+    const msg = t().fetchDone(filtered.length);
+    setStatus(msg);
+    showToast('✅ ' + msg);
+    // speak は非同期で少し遅らせる（マイク干渉防止）
+    setTimeout(() => speak(msg), 300);
+    // 住所不明のアイテムをバックグラウンドで補完
+    enrichAddresses(allData).then(() => {
+      applyFilter();
+    });
+  } catch(e) {
+    console.error('fetchAndShow error:', e);
+    const errMsg = t().fetchFail + (e.message ? ' (' + e.message + ')' : '');
+    setStatus(errMsg);
+    showToast('❌ ' + t().fetchFail);
+    console.error(e);
+  } finally {
+    $('map-loading').classList.add('hidden');
+  }
+}
+
+// ═══════════════════════════════════
+// NOMINATIM: 住所不明アイテムを逆ジオコーディングで補完
+// ═══════════════════════════════════
+const geocodeCache = {};
+async function enrichAddresses(items) {
+  const missing = items.filter(x => !x.addr);
+  // 同時に叩きすぎないよう最大5件・1件ずつ
+  const targets = missing.slice(0, 5);
+  for (const x of targets) {
+    if (geocodeCache[x.id]) { x.addr = geocodeCache[x.id]; continue; }
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${x.lat}&lon=${x.lng}&format=json&accept-language=${lang}&zoom=16`;
+      const res = await fetch(url, { headers: { 'Accept-Language': lang === 'ja' ? 'ja,en' : 'en' } });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const a = data.address || {};
+      const parts = [
+        a.prefecture || a.state,
+        a.city || a.town || a.village || a.suburb,
+        a.quarter || a.neighbourhood,
+        a.road
+      ].filter(Boolean);
+      if (parts.length) {
+        x.addr = parts.join(' ');
+        geocodeCache[x.id] = x.addr;
+      }
+    } catch(e) { /* ignore */ }
+  }
+}
+
+// ═══════════════════════════════════
+// RESET BUTTON VISIBILITY
+// ═══════════════════════════════════
+function updateResetBtn() {
+  // リセットボタンは常時表示（視覚障がい者が常に見つけられるよう）
+  // 非アクティブ時はグレーアウトして状態を伝える
+  const active = searchQ !== '' || currentFilter !== 'all';
+  const btn = $('reset-btn');
+  if (!btn) return;
+  btn.style.opacity = active ? '1' : '0.4';
+  btn.setAttribute('aria-disabled', active ? 'false' : 'true');
+  btn.setAttribute('aria-label',
+    active
+      ? '検索とフィルターをすべてリセットして全件表示に戻る'
+      : 'リセット（現在フィルターなし・全件表示中）'
+  );
+}
+
+// ═══════════════════════════════════
+// FILTER & SEARCH
+// ═══════════════════════════════════
+function applyFilter() {
+  const f = currentFilter;
+  const q = searchQ.toLowerCase();
+  filtered = allData.filter(x => {
+    const mf = f === 'all' ? true
+             : f === 'fav' ? favs.includes(x.id)
+             : x.features.includes(f);
+    const mq = !q || x.name.toLowerCase().includes(q) || x.addr.toLowerCase().includes(q);
+    return mf && mq;
+  });
+  if (sortDist) filtered.sort((a,b)=>(a._d||0)-(b._d||0));
+  renderList();
+}
+
+// ═══════════════════════════════════
+// RENDER LIST
+// ═══════════════════════════════════
+function renderList() {
+  const list = $('toilet-list');
+  setText('list-count', t().count(filtered.length));
+
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty-state">
+      <span class="icon">🔍</span>
+      ${t().noResult.replace(/\n/g,'<br>')}
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map((x, idx) => {
+    const isFav = favs.includes(x.id);
+    const dStr = x._d !== undefined ? `<span class="card-dist" aria-hidden="true">${fmtDist(x._d)}</span>` : '';
+    const dSpeak = x._d !== undefined
+      ? (x._d < 1000 ? Math.round(x._d) + 'メートル' : (x._d/1000).toFixed(1) + 'キロ')
+      : '';
+    const bHtml = x.features.map(f =>
+      `<span class="badge badge-${f}">${t().badge[f]||f}</span>`
+    ).join('');
+    const feats = x.features.map(f => t().feat[f]||f).join(t().sep);
+    // スクリーンリーダー用の完全な説明文
+    const ariaDesc = [
+      `${idx+1}番目。`,
+      x.name,
+      dSpeak ? `現在地から${dSpeak}。` : '',
+      x.addr ? `住所：${x.addr}。` : '住所不明。',
+      `設備：${feats}。`,
+      x.open ? `営業時間：${x.open}。` : '',
+    ].filter(Boolean).join('');
+
+    // Googleマップ固定：アプリがあればアプリ起動、なければブラウザ版が開く
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${x.lat},${x.lng}&travelmode=walking`;
+
+    return `
+<div class="card${selectedId===x.id?' selected':''}"
+  role="article"
+  aria-label="${escHtml(ariaDesc)}">
+  <div class="card-top">
+    <span class="card-name">${escHtml(x.name)}</span>${dStr}
+  </div>
+  <div class="card-addr">📍 ${escHtml(x.addr)||'住所不明'}</div>
+  <div class="badges" aria-hidden="true">${bHtml}</div>
+  <div class="card-actions">
+    <a class="card-btn card-btn-nav"
+       href="${mapsUrl}"
+       target="_blank" rel="noopener"
+       aria-label="${escHtml(x.name)}へのナビを起動する${dSpeak ? '。現在地から' + dSpeak + '先' : ''}。徒歩ナビが開きます">
+      🧭 ${lang==='ja'?'ナビ起動':'Navigate'}
+    </a>
+    <button class="card-btn card-btn-speak"
+            onclick="App.speakCard('${x.id}')"
+            aria-label="${escHtml(x.name)}の情報を音声で読み上げる">
+      🔊 ${lang==='ja'?'読み上げ':'Read'}
+    </button>
+    <button class="card-btn card-btn-fav${isFav?' active':''}"
+            onclick="App.toggleFav(event,'${x.id}')"
+            aria-label="${isFav ? x.name+'をお気に入りから削除' : x.name+'をお気に入りに追加'}"
+            aria-pressed="${isFav}">
+      ${isFav?'⭐':'☆'}
+    </button>
+  </div>
+</div>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══════════════════════════════════
+// RENDER MARKERS
+// ═══════════════════════════════════
+function renderMarkers() {
+  if (!map) return;
+  // Remove old markers
+  Object.values(markers).forEach(m => m.remove());
+  markers = {};
+
+  filtered.forEach(x => {
+    const isMulti = x.features.includes('multi');
+    const icon = makeMarkerIcon(isMulti);
+    const m = L.marker([x.lat, x.lng], { icon })
+      .addTo(map)
+      .on('click', () => { App.select(x.id); });
+
+    const popupHtml = `
+<div style="min-width:180px">
+  <div style="font-weight:900;font-size:0.9rem;margin-bottom:4px">${escHtml(x.name)}</div>
+  <div style="font-size:0.72rem;color:#64748b;margin-bottom:8px">${escHtml(x.addr)||''}</div>
+  <button onclick="App.select('${x.id}')" style="background:linear-gradient(135deg,#00d4ff,#0099cc);border:none;color:#000;padding:6px 12px;border-radius:8px;font-size:0.75rem;font-weight:700;cursor:pointer;width:100%">
+    ${t().openMaps}
+  </button>
+</div>`;
+    m.bindPopup(popupHtml, { maxWidth: 220 });
+    markers[x.id] = m;
+  });
+}
+
+// ═══════════════════════════════════
+// SELECT TOILET
+// ═══════════════════════════════════
+function selectToilet(id) {
+  const x = allData.find(a=>a.id===id);
+  if (!x) return;
+  selectedId = id;
+
+  const feats = x.features.map(f => t().feat[f]||f).join(t().sep);
+  const distStr = x._d !== undefined
+    ? (x._d < 1000 ? Math.round(x._d) + (lang==='ja'?'メートル先':'m away') : (x._d/1000).toFixed(1) + (lang==='ja'?'キロ先':'km away'))
+    : '';
+  const speakText = lang === 'ja'
+    ? `${x.name}。${distStr ? distStr + '。' : ''}住所：${x.addr || '不明'}。設備：${feats}。`
+    : `${x.name}. ${distStr ? distStr + '. ' : ''}Address: ${x.addr || 'unknown'}. Facilities: ${feats}.`;
+  speak(speakText, true);
+
+  const isFav = favs.includes(id);
+  const bHtml = x.features.map(f =>
+    `<span class="badge badge-${f}">${t().badge[f]||f}</span>`
+  ).join('');
+  // Googleマップ固定：アプリがあればアプリ起動、なければブラウザ版が開く
+  const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${x.lat},${x.lng}&travelmode=walking`;
+
+  setHtml('detail-content', `
+<div class="detail-handle"></div>
+<button class="detail-close" onclick="App.closeDetail()" aria-label="詳細パネルを閉じる">✕ 閉じる</button>
+<div class="detail-name">${escHtml(x.name)}</div>
+<div class="detail-addr">📍 ${escHtml(x.addr)||'住所不明'}</div>
+<div class="detail-badges">${bHtml}</div>
+<div class="detail-actions">
+  <a class="action-btn action-primary" href="${mapsUrl}" target="_blank" rel="noopener">
+    ${t().openMaps}
+  </a>
+  <button class="action-btn action-amber" onclick="App.respeak()">
+    ${t().readAgain}
+  </button>
+  <button class="action-btn action-ghost" onclick="App.toggleFav(null,'${id}')">
+    ${isFav?t().favRemove:t().favAdd}
+  </button>
+</div>
+<div class="detail-note">
+  ${escHtml(x.note)}
+  ${x.open ? `<br>${t().hoursLabel}${escHtml(x.open)}` : ''}
+</div>
+`);
+
+  $('detail').classList.add('open');
+
+  // Fly map to marker
+  if (map) {
+    map.flyTo([x.lat, x.lng], 17, { duration: 0.8 });
+    if (markers[id]) markers[id].openPopup();
+  }
+
+  renderList();
+  // Scroll card into view
+  setTimeout(() => {
+    const el = $('toilet-list').querySelector('.selected');
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, 100);
+}
+
+// ═══════════════════════════════════
+// PUBLIC API
+// ═══════════════════════════════════
+window.App = {
+  locate() {
+    setStatus(t().statusLocating, 'loading');
+    // speak() は呼ばない（マイク許可ダイアログと競合するため）
+    showToast('📍 ' + t().locating);
+    navigator.geolocation.getCurrentPosition(pos => {
+      userLat = pos.coords.latitude;
+      userLng = pos.coords.longitude;
+
+      initMap();
+      hideWelcome();
+
+      // User marker
+      if (userMarker) userMarker.remove();
+      userMarker = L.marker([userLat, userLng], { icon: makeUserIcon(), zIndexOffset: 1000 }).addTo(map);
+
+      // Radius circle
+      if (radiusCircle) radiusCircle.remove();
+      const radius = parseInt($('radius-sel').value) || 1000;
+      radiusCircle = L.circle([userLat, userLng], {
+        radius,
+        color: '#00d4ff',
+        fillColor: '#00d4ff',
+        fillOpacity: 0.06,
+        weight: 1
+      }).addTo(map);
+
+      map.setView([userLat, userLng], 15);
+
+      setStatus(t().located);
+      showToast(t().locateToast);
+
+      fetchAndShow(userLat, userLng);
+    }, (err) => {
+      console.warn('Geolocation error:', err.code, err.message);
+      const msg = err.code === 1 ? '位置情報の許可が必要です' : t().locateFail;
+      setStatus(msg);
+      showToast('❌ ' + msg);
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+  },
+
+  fetchAroundMap() {
+    if (!map) return;
+    const c = map.getCenter();
+    if (!welcomeHidden) {
+      initMap();
+      hideWelcome();
+    }
+    fetchAndShow(c.lat, c.lng);
+  },
+
+  onRadiusChange() {
+    if (userLat && map) {
+      if (radiusCircle) radiusCircle.remove();
+      const radius = parseInt($('radius-sel').value) || 1000;
+      radiusCircle = L.circle([userLat, userLng], {
+        radius,
+        color: '#00d4ff',
+        fillColor: '#00d4ff',
+        fillOpacity: 0.06,
+        weight: 1
+      }).addTo(map);
+    }
+  },
+
+  search() {
+    searchQ = ($('search-input').value || '').trim();
+    $('search-clear').style.display = searchQ ? 'block' : 'none';
+    applyFilter();
+    updateResetBtn();
+  },
+
+  clearSearch() {
+    $('search-input').value = '';
+    searchQ = '';
+    $('search-clear').style.display = 'none';
+    $('search-input').focus();
+    applyFilter();
+    updateResetBtn();
+    speak(lang === 'ja' ? '検索をクリアしました。全件表示しています。' : 'Search cleared. Showing all results.', true);
+  },
+
+  resetAll() {
+    // 検索テキストをクリア
+    $('search-input').value = '';
+    searchQ = '';
+    $('search-clear').style.display = 'none';
+    // フィルターをすべてにリセット
+    currentFilter = 'all';
+    document.querySelectorAll('.chip').forEach(c => {
+      const isAll = c.dataset.f === 'all';
+      c.classList.toggle('active', isAll);
+      c.setAttribute('aria-pressed', isAll ? 'true' : 'false');
+    });
+    applyFilter();
+    renderMarkers();
+    updateResetBtn();
+    speak(lang === 'ja'
+      ? 'リセットしました。全件表示しています。' + t().count(filtered.length) + 'のトイレが見つかりました。'
+      : 'Reset complete. Showing all ' + filtered.length + ' results.', true);
+  },
+
+  speakCard(id) {
+    const x = allData.find(a => a.id === id);
+    if (!x) return;
+    const feats = x.features.map(f => t().feat[f]||f).join(t().sep);
+    const dSpeak = x._d !== undefined
+      ? (x._d < 1000 ? Math.round(x._d) + (lang==='ja'?'メートル先':'m away')
+                     : (x._d/1000).toFixed(1) + (lang==='ja'?'キロ先':'km away'))
+      : '';
+    const msg = lang === 'ja'
+      ? [
+          x.name + '。',
+          dSpeak ? dSpeak + '。' : '',
+          x.addr ? '住所：' + x.addr + '。' : '住所不明。',
+          '設備：' + feats + '。',
+          x.note ? x.note + '。' : '',
+          x.open ? '営業時間：' + x.open + '。' : '',
+        ].filter(Boolean).join('')
+      : [
+          x.name + '. ',
+          dSpeak ? dSpeak + '. ' : '',
+          x.addr ? 'Address: ' + x.addr + '. ' : 'Address unknown. ',
+          'Facilities: ' + feats + '. ',
+          x.open ? 'Hours: ' + x.open + '.' : '',
+        ].filter(Boolean).join('');
+    speak(msg, true);
+    // 選択状態にしてカードを強調
+    selectedId = id;
+    renderList();
+  },
+
+  speakNearest() {
+    if (filtered.length === 0) {
+      speak(lang === 'ja' ? '近くにトイレが見つかりません' : 'No toilets found nearby.', true);
+      return;
+    }
+    const x = filtered[0];
+    const feats = x.features.map(f => t().feat[f]||f).join(t().sep);
+    const dist = x._d !== undefined ? (x._d < 1000 ? Math.round(x._d) + 'メートル' : (x._d/1000).toFixed(1) + 'キロメートル') : '';
+    const msg = lang === 'ja'
+      ? `最寄りのトイレ。${dist ? dist + '先。' : ''}${x.name}。${x.addr || '住所不明'}。設備：${feats}。`
+      : `Nearest toilet${dist ? ', ' + dist + ' away' : ''}. ${x.name}. ${x.addr || 'Address unknown'}. Facilities: ${feats}.`;
+    speak(msg, true);
+  },
+
+  select(id) {
+    selectToilet(id);
+  },
+
+  closeDetail() {
+    $('detail').classList.remove('open');
+    selectedId = null;
+    renderList();
+    speak(lang === 'ja' ? '詳細を閉じました。' : 'Detail closed.', true);
+  },
+
+  respeak() {
+    const x = getSel();
+    if (!x) return;
+    const feats = x.features.map(f => t().feat[f]||f).join(t().sep);
+    speak(t().speakSelect(x, feats), true);
+  },
+
+  toggleFav(e, id) {
+    if (e) e.stopPropagation();
+    const idx = favs.indexOf(id);
+    if (idx === -1) {
+      favs.push(id);
+      speak(t().favAdded);
+      showToast('⭐ ' + t().favAdded);
+    } else {
+      favs.splice(idx, 1);
+      speak(t().favRemoved);
+      showToast(t().favRemoved);
+    }
+    try { localStorage.setItem('bf_favs', JSON.stringify(favs)); } catch(e) {}
+    applyFilter();
+    if (selectedId === id) selectToilet(id);
+  },
+
+  toggleSort() {
+    sortDist = !sortDist;
+    setText('sort-btn', sortDist ? t().sortD : t().sortN);
+    applyFilter();
+    renderMarkers();
+  },
+
+  startVoice() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { showToast(t().noMic); return; }
+    if (isListening) { if(recognition) recognition.stop(); return; }
+
+    // 音声合成が動いていたら必ず止めてからマイクを起動
+    synth.cancel();
+
+    recognition = new SR();
+    recognition.lang = t().speechLang;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    let gotResult = false;
+
+    recognition.onstart = () => {
+      isListening = true;
+      gotResult = false;
+      $('mic-btn').classList.add('on');
+      $('mic-btn').textContent = '🔴';
+      $('mic-btn').setAttribute('aria-pressed', 'true');
+      $('mic-btn').setAttribute('aria-label', '音声認識中。もう一度押すと停止');
+      setStatus(t().statusListening, 'listening');
+      showToast('🎙️ ' + t().speakNow);
+    };
+
+    recognition.onresult = e => {
+      gotResult = true;
+      const q = e.results[0][0].transcript;
+      $('search-input').value = q;
+      searchQ = q;
+      $('search-clear').style.display = q ? 'block' : 'none';
+      applyFilter();
+      // 認識完了後に読み上げ（マイクはもう閉じている）
+      setTimeout(() => speak(t().speakSearch(q)), 200);
+    };
+
+    recognition.onerror = e => {
+      // no-speech / aborted はユーザー操作由来なのでエラー扱いしない
+      const silent = ['no-speech', 'aborted'];
+      if (!silent.includes(e.error)) {
+        showToast('⚠️ ' + t().voiceFail + `（${e.error}）`);
+      }
+    };
+
+    recognition.onend = () => {
+      isListening = false;
+      $('mic-btn').classList.remove('on');
+      $('mic-btn').textContent = '🎙️';
+      $('mic-btn').setAttribute('aria-pressed', 'false');
+      $('mic-btn').setAttribute('aria-label', '音声検索を開始する。もう一度押すと停止');
+      setStatus(gotResult ? t().statusWait : t().statusReady);
+    };
+
+    recognition.start();
+  },
+
+  toggleLang() {
+    lang = lang === 'ja' ? 'en' : 'ja';
+    applyI18n();
+    speak(lang === 'en' ? 'Switched to English' : '日本語に切り替えました', true);
+  },
+
+  toggleSidebar() {
+    sidebarOpen = !sidebarOpen;
+    $('sidebar').classList.toggle('sp-open', sidebarOpen);
+  }
+};
+
+// ═══════════════════════════════════
+// CHIPS
+// ═══════════════════════════════════
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(c => {
+      c.classList.remove('active');
+      c.setAttribute('aria-pressed', 'false');
+    });
+    chip.classList.add('active');
+    chip.setAttribute('aria-pressed', 'true');
+    currentFilter = chip.dataset.f;
+    applyFilter();
+    renderMarkers();
+    updateResetBtn();
+    // フィルター結果を音声でフィードバック
+    setTimeout(() => {
+      const label = t().filterLabel[currentFilter] || currentFilter;
+      const msg = lang === 'ja'
+        ? `${label}でフィルターしました。${filtered.length}件のトイレが見つかりました。`
+        : `Filtered by ${label}. ${filtered.length} toilet${filtered.length!==1?'s':''} found.`;
+      speak(msg, true);
+    }, 200);
+  });
+});
+
+// ═══════════════════════════════════
+// KEYBOARD
+// ═══════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target === document.body) {
+    e.preventDefault();
+    App.speakNearest();
+  }
+  if (e.key === 'Escape') App.closeDetail();
+});
+
+// ═══════════════════════════════════
+// I18N APPLY
+// ═══════════════════════════════════
+function applyI18n() {
+  setText('lang-btn', t().langBtn);
+  setText('hd-title', t().hdTitle);
+  setText('status-text', t().statusReady);
+  $('search-input').placeholder = t().searchPH;
+  setText('radius-label', t().radiusLabel);
+  setText('sort-btn', sortDist ? t().sortD : t().sortN);
+  setText('wc-title', t().welcomeTitle);
+  setText('wc-desc', t().welcomeDesc.replace(/\n/g,' '));
+  setText('wc-btn-text', t().welcomeBtn);
+  setText('wc-note', t().welcomeNote);
+  setText('mc-locate', t().mcLocate);
+  setText('mc-reload', t().mcReload);
+  setText('loading-text', t().loadingText);
+  setText('sp-list-text', t().spList);
+  setText('mic-hint', t().micHint);
+  document.querySelectorAll('.chip').forEach(c => {
+    c.textContent = t().chips[c.dataset.f] || c.textContent;
+  });
+  if ($('reset-btn-label'))    setText('reset-btn-label', t().resetLabel);
+  if ($('speak-nearest-label')) setText('speak-nearest-label', t().speakNearestLabel);
+  // 検索入力のプレースホルダーも更新
+  $('search-input').setAttribute('aria-label', t().searchPH);
+  renderList();
+  renderMarkers();
+  updateResetBtn();
+}
+
+// ═══════════════════════════════════
+// WELCOME
+// ═══════════════════════════════════
+function hideWelcome() {
+  if (welcomeHidden) return;
+  welcomeHidden = true;
+  $('welcome').classList.add('hidden');
+  setTimeout(() => { $('welcome').style.display='none'; }, 600);
+}
+
+// ═══════════════════════════════════
+// INIT
+// ═══════════════════════════════════
+setStatus(t().statusReady);
+renderList();
+updateResetBtn();
+setTimeout(() => speak(t().welcome), 800);
+
+// Check if geolocation available
+if (!navigator.geolocation) {
+  setText('wc-btn-text', '位置情報が利用できません');
+}
+
+})();
+</script>
+</body>
+</html>
